@@ -8,8 +8,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def init_spins(L: int, rng: np.random.Generator) -> np.ndarray:
-    return rng.choice([-1, 1], size=(L, L))
+def init_spins(L: int, rng: np.random.Generator, mode: str) -> np.ndarray:
+    if mode == "random":
+        return rng.choice([-1, 1], size=(L, L))
+    if mode == "up":
+        return np.ones((L, L), dtype=int)
+    if mode == "down":
+        return -np.ones((L, L), dtype=int)
+    raise ValueError(f"Unsupported init mode: {mode}")
 
 
 def total_energy(spins: np.ndarray, J: float) -> float:
@@ -27,8 +33,8 @@ def simulate(
     thermal_steps: int,
     measure_interval: int,
     rng: np.random.Generator,
-) -> Tuple[float, float, float]:
-    spins = init_spins(L, rng)
+    spins: np.ndarray,
+) -> Tuple[float, float, float, np.ndarray]:
     N = L * L
     E = total_energy(spins, J)
     M = int(np.sum(spins))
@@ -73,7 +79,7 @@ def simulate(
     Mabs_per_spin = avg_Mabs / N
     Cv_per_spin = (avg_E2 - avg_E * avg_E) / (N * T * T)
 
-    return Mabs_per_spin, E_per_spin, Cv_per_spin
+    return Mabs_per_spin, E_per_spin, Cv_per_spin, spins
 
 
 def estimate_tc(temps: np.ndarray, cvs: np.ndarray) -> float:
@@ -98,12 +104,18 @@ def run_simulation(args: argparse.Namespace) -> float:
     temps = np.arange(args.T_start, args.T_stop + 1e-12, args.T_step)
     temp_list = []
     cv_list = []
+    spins = None
 
     with open(args.output, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["T", "M_abs_per_spin", "E_per_spin", "Cv_per_spin"])
         for T in temps:
-            m, e, cv = simulate(
+            if args.anneal and spins is None:
+                spins = init_spins(args.L, rng, args.init)
+            elif not args.anneal:
+                spins = init_spins(args.L, rng, args.init)
+
+            m, e, cv, spins = simulate(
                 L=args.L,
                 J=args.J,
                 T=float(T),
@@ -111,6 +123,7 @@ def run_simulation(args: argparse.Namespace) -> float:
                 thermal_steps=thermal_steps,
                 measure_interval=measure_interval,
                 rng=rng,
+                spins=spins,
             )
             writer.writerow([f"{T:.6g}", f"{m:.6g}", f"{e:.6g}", f"{cv:.6g}"])
             print(f"T={T:.3f}  <|M|>/N={m:.6f}  <E>/N={e:.6f}  Cv/N={cv:.6f}")
@@ -159,40 +172,52 @@ def plot_results(csv_path: str, prefix: str) -> float:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="2D Ising model Monte Carlo (Metropolis)")
-    parser.add_argument("--L", type=int, default=100, help="Linear system size")
-    parser.add_argument("--J", type=float, default=1.0, help="Coupling constant J")
-    parser.add_argument("--T-start", type=float, default=0.2, help="Starting reduced temperature")
-    parser.add_argument("--T-stop", type=float, default=6.0, help="Ending reduced temperature (inclusive)")
-    parser.add_argument("--T-step", type=float, default=0.2, help="Temperature step")
+    parser = argparse.ArgumentParser(description="二维伊辛模型蒙特卡洛（Metropolis）")
+    parser.add_argument("--L", type=int, default=100, help="线性尺寸 L")
+    parser.add_argument("--J", type=float, default=1.0, help="耦合常数 J")
+    parser.add_argument(
+        "--init",
+        type=str,
+        default="random",
+        choices=["random", "up", "down"],
+        help="初始自旋构型：random/up/down",
+    )
+    parser.add_argument("--T-start", type=float, default=0.2, help="起始约化温度")
+    parser.add_argument("--T-stop", type=float, default=6.0, help="终止约化温度（包含）")
+    parser.add_argument("--T-step", type=float, default=0.2, help="温度步长")
     parser.add_argument(
         "--mc-steps",
         type=int,
-        default=10_000,
-        help="Total MC sweeps (each sweep attempts N flips)",
+        default=100,
+        help="MC 扫场次数（每次扫场尝试 N 次翻转）",
     )
     parser.add_argument(
         "--thermal-steps",
         type=int,
         default=None,
-        help="Thermalization sweeps (defaults to 20% of mc-steps)",
+        help="热化扫场数（默认 mc-steps 的 20%）",
     )
     parser.add_argument(
         "--measure-interval",
         type=int,
         default=None,
-        help="Measurement interval in sweeps (defaults to 1 sweep)",
+        help="测量间隔（扫场数，默认 1）",
     )
-    parser.add_argument("--seed", type=int, default=1234, help="Random seed")
+    parser.add_argument("--seed", type=int, default=1234, help="随机种子")
     parser.add_argument(
         "--output",
         type=str,
         default="ising_results.csv",
-        help="CSV output file",
+        help="CSV 输出文件",
     )
-    parser.add_argument("--prefix", type=str, default="ising", help="Image output prefix")
-    parser.add_argument("--no-plot", action="store_true", help="Skip plotting")
-    parser.add_argument("--plot-only", action="store_true", help="Only plot from existing CSV")
+    parser.add_argument("--prefix", type=str, default="ising", help="图片输出前缀")
+    parser.add_argument("--no-plot", action="store_true", help="仅模拟不绘图")
+    parser.add_argument("--plot-only", action="store_true", help="仅根据已有 CSV 绘图")
+    parser.add_argument(
+        "--anneal",
+        action="store_true",
+        help="相邻温度点复用最终构型作为初始态",
+    )
     return parser.parse_args()
 
 

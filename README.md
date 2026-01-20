@@ -10,12 +10,13 @@
 python3 main.py
 ```
 
-常用参数：
-
-```bash
-python3 main.py --L 100 --mc-steps 10000 --T-start 0.2 --T-stop 6.0 --T-step 0.2
+## 冷启动
+```shell
+# 从 T=1.0 开始，步长 0.05，初始全向上，启用状态延续(anneal)
+python3 main.py --L 100 --J 1.0 --T-start 1.0 --T-stop 3.5 --T-step 0.05 --mc-steps 5000 --measure-interval 5 --init up --anneal
 ```
 
-结果会输出到控制台，并保存到 `ising_results.csv`，列为：
-`T`、`M_abs_per_spin`、`E_per_spin`、`Cv_per_spin`。绘图文件为：
-`ising_M_vs_T.png`、`ising_E_vs_T.png`、`ising_Cv_vs_T.png`。
+## 精细
+```shell
+python3 main.py --T-start 2.0 --T-stop 2.6 --T-step 0.02 --mc-steps 10000 --init random
+```
