@@ -155,6 +155,8 @@ def simulate_numba(
 
 def estimate_tc(temps: np.ndarray, cvs: np.ndarray) -> float:
     # 以热容峰值对应温度作为相变温度的估计。
+    temps = np.atleast_1d(temps)
+    cvs = np.atleast_1d(cvs)
     idx = int(np.argmax(cvs))
     return float(temps[idx])
 
@@ -234,10 +236,11 @@ def run_simulation(args: argparse.Namespace) -> float:
 
 def plot_results(csv_path: str, prefix: str) -> float:
     data = np.genfromtxt(csv_path, delimiter=",", names=True, dtype=None, encoding=None)
-    T = data["T"]
-    M = data["M_abs_per_spin"]
-    E = data["E_per_spin"]
-    Cv = data["Cv_per_spin"]
+    # 单温度时 genfromtxt 会返回标量，统一转为一维数组便于绘图。
+    T = np.atleast_1d(data["T"])
+    M = np.atleast_1d(data["M_abs_per_spin"])
+    E = np.atleast_1d(data["E_per_spin"])
+    Cv = np.atleast_1d(data["Cv_per_spin"])
 
     plt.figure()
     plt.plot(T, M, "o-", lw=1)
