@@ -241,34 +241,41 @@ def plot_results(csv_path: str, prefix: str) -> float:
     M = np.atleast_1d(data["M_abs_per_spin"])
     E = np.atleast_1d(data["E_per_spin"])
     Cv = np.atleast_1d(data["Cv_per_spin"])
+    tc = estimate_tc(T, Cv)
 
     plt.figure()
     plt.plot(T, M, "o-", lw=1)
+    plt.axvline(tc, color="red", linestyle="--", lw=1)
     plt.xlabel("T (kB T / J)")
     plt.ylabel("<|M|>/N")
     plt.title("Magnetization vs Temperature")
+    plt.text(0.98, 0.95, f"Tc≈{tc:.3f}", transform=plt.gca().transAxes, ha="right", va="top", color="red")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{prefix}_M_vs_T.png", dpi=150)
 
     plt.figure()
     plt.plot(T, E, "o-", lw=1)
+    plt.axvline(tc, color="red", linestyle="--", lw=1)
     plt.xlabel("T (kB T / J)")
     plt.ylabel("<E>/N")
     plt.title("Energy vs Temperature")
+    plt.text(0.98, 0.95, f"Tc≈{tc:.3f}", transform=plt.gca().transAxes, ha="right", va="top", color="red")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{prefix}_E_vs_T.png", dpi=150)
 
     plt.figure()
     plt.plot(T, Cv, "o-", lw=1)
+    plt.axvline(tc, color="red", linestyle="--", lw=1)
     plt.xlabel("T (kB T / J)")
     plt.ylabel("Cv/N")
     plt.title("Heat Capacity vs Temperature")
+    plt.text(0.98, 0.95, f"Tc≈{tc:.3f}", transform=plt.gca().transAxes, ha="right", va="top", color="red")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.savefig(f"{prefix}_Cv_vs_T.png", dpi=150)
-    return estimate_tc(T, Cv)
+    return tc
 
 
 def parse_args() -> argparse.Namespace:
