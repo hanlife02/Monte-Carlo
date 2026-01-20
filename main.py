@@ -7,6 +7,19 @@ from typing import Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 
+try:
+    from numba import njit
+
+    NUMBA_AVAILABLE = True
+except ImportError:  # 允许在未安装 numba 时正常运行
+    NUMBA_AVAILABLE = False
+
+    def njit(*args, **kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
 
 def init_spins(L: int, rng: np.random.Generator, mode: str) -> np.ndarray:
     if mode == "random":
@@ -82,6 +95,64 @@ def simulate(
     return Mabs_per_spin, E_per_spin, Cv_per_spin, spins
 
 
+@njit(cache=True)
+def total_energy_numba(spins: np.ndarray, J: float, L: int) -> float:
+    E = 0.0
+    for i in range(L):
+        for j in range(L):
+            s = spins[i, j]
+            E -= J * s * (spins[i, (j + 1) % L] + spins[(i + 1) % L, j])
+    return E
+
+
+@njit(cache=True)
+def simulate_numba(
+    L: int,
+    J: float,
+    T: float,
+    total_steps: int,
+    thermal_steps: int,
+    measure_interval: int,
+    spins: np.ndarray,
+) -> Tuple[float, float, float, int, np.ndarray]:
+    N = L * L
+    E = total_energy_numba(spins, J, L)
+    M = 0
+    for i in range(L):
+        for j in range(L):
+            M += spins[i, j]
+
+    sum_E = 0.0
+    sum_E2 = 0.0
+    sum_Mabs = 0.0
+    n_meas = 0
+
+    for sweep in range(total_steps):
+        for _ in range(N):
+            i = np.random.randint(0, L)
+            j = np.random.randint(0, L)
+            s = spins[i, j]
+            neighbor_sum = (
+                spins[(i + 1) % L, j]
+                + spins[(i - 1) % L, j]
+                + spins[i, (j + 1) % L]
+                + spins[i, (j - 1) % L]
+            )
+            dE = 2.0 * J * s * neighbor_sum
+            if dE <= 0.0 or np.random.random() < math.exp(-dE / T):
+                spins[i, j] = -s
+                E += dE
+                M -= 2 * s
+
+        if sweep >= thermal_steps and (sweep - thermal_steps + 1) % measure_interval == 0:
+            n_meas += 1
+            sum_E += E
+            sum_E2 += E * E
+            sum_Mabs += abs(M)
+
+    return sum_E, sum_E2, sum_Mabs, n_meas, spins
+
+
 def estimate_tc(temps: np.ndarray, cvs: np.ndarray) -> float:
     # 以热容峰值对应温度作为相变温度的估计。
     idx = int(np.argmax(cvs))
@@ -105,6 +176,11 @@ def run_simulation(args: argparse.Namespace) -> float:
     temp_list = []
     cv_list = []
     spins = None
+    use_numba = (not args.no_numba) and NUMBA_AVAILABLE
+    if use_numba:
+        np.random.seed(args.seed)
+    elif not NUMBA_AVAILABLE and not args.no_numba:
+        print("未检测到 numba，使用纯 Python 版本运行。")
 
     with open(args.output, "w", newline="") as f:
         writer = csv.writer(f)
@@ -115,16 +191,37 @@ def run_simulation(args: argparse.Namespace) -> float:
             elif not args.anneal:
                 spins = init_spins(args.L, rng, args.init)
 
-            m, e, cv, spins = simulate(
-                L=args.L,
-                J=args.J,
-                T=float(T),
-                total_steps=args.mc_steps,
-                thermal_steps=thermal_steps,
-                measure_interval=measure_interval,
-                rng=rng,
-                spins=spins,
-            )
+            if use_numba:
+                sum_E, sum_E2, sum_Mabs, n_meas, spins = simulate_numba(
+                    L=args.L,
+                    J=args.J,
+                    T=float(T),
+                    total_steps=args.mc_steps,
+                    thermal_steps=thermal_steps,
+                    measure_interval=measure_interval,
+                    spins=spins,
+                )
+                if n_meas == 0:
+                    raise RuntimeError(
+                        "No measurements collected; increase total_steps or decrease thermal_steps."
+                    )
+                avg_E = sum_E / n_meas
+                avg_E2 = sum_E2 / n_meas
+                avg_Mabs = sum_Mabs / n_meas
+                m = avg_Mabs / N
+                e = avg_E / N
+                cv = (avg_E2 - avg_E * avg_E) / (N * T * T)
+            else:
+                m, e, cv, spins = simulate(
+                    L=args.L,
+                    J=args.J,
+                    T=float(T),
+                    total_steps=args.mc_steps,
+                    thermal_steps=thermal_steps,
+                    measure_interval=measure_interval,
+                    rng=rng,
+                    spins=spins,
+                )
             writer.writerow([f"{T:.6g}", f"{m:.6g}", f"{e:.6g}", f"{cv:.6g}"])
             print(f"T={T:.3f}  <|M|>/N={m:.6f}  <E>/N={e:.6f}  Cv/N={cv:.6f}")
             temp_list.append(float(T))
@@ -188,7 +285,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--mc-steps",
         type=int,
-        default=100,
+        default=1000000,
         help="MC 扫场次数（每次扫场尝试 N 次翻转）",
     )
     parser.add_argument(
@@ -213,6 +310,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prefix", type=str, default="ising", help="图片输出前缀")
     parser.add_argument("--no-plot", action="store_true", help="仅模拟不绘图")
     parser.add_argument("--plot-only", action="store_true", help="仅根据已有 CSV 绘图")
+    parser.add_argument("--no-numba", action="store_true", help="禁用 numba 加速")
     parser.add_argument(
         "--anneal",
         action="store_true",
