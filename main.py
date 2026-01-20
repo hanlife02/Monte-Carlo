@@ -38,23 +38,25 @@ def simulate(
     sum_Mabs = 0.0
     n_meas = 0
 
-    for step in range(total_steps):
-        i = rng.integers(0, L)
-        j = rng.integers(0, L)
-        s = spins[i, j]
-        neighbor_sum = (
-            spins[(i + 1) % L, j]
-            + spins[(i - 1) % L, j]
-            + spins[i, (j + 1) % L]
-            + spins[i, (j - 1) % L]
-        )
-        dE = 2.0 * J * s * neighbor_sum
-        if dE <= 0.0 or rng.random() < math.exp(-dE / T):
-            spins[i, j] = -s
-            E += dE
-            M -= 2 * s
+    for sweep in range(total_steps):
+        # 一次扫场：随机尝试翻转 N 次
+        for _ in range(N):
+            i = rng.integers(0, L)
+            j = rng.integers(0, L)
+            s = spins[i, j]
+            neighbor_sum = (
+                spins[(i + 1) % L, j]
+                + spins[(i - 1) % L, j]
+                + spins[i, (j + 1) % L]
+                + spins[i, (j - 1) % L]
+            )
+            dE = 2.0 * J * s * neighbor_sum
+            if dE <= 0.0 or rng.random() < math.exp(-dE / T):
+                spins[i, j] = -s
+                E += dE
+                M -= 2 * s
 
-        if step >= thermal_steps and (step - thermal_steps + 1) % measure_interval == 0:
+        if sweep >= thermal_steps and (sweep - thermal_steps + 1) % measure_interval == 0:
             n_meas += 1
             sum_E += E
             sum_E2 += E * E
@@ -88,7 +90,9 @@ def run_simulation(args: argparse.Namespace) -> float:
 
     measure_interval = args.measure_interval
     if measure_interval is None:
-        measure_interval = N
+        measure_interval = 1
+    if measure_interval <= 0:
+        raise ValueError("measure-interval must be positive")
 
     rng = np.random.default_rng(args.seed)
     temps = np.arange(args.T_start, args.T_stop + 1e-12, args.T_step)
@@ -161,18 +165,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--T-start", type=float, default=0.2, help="Starting reduced temperature")
     parser.add_argument("--T-stop", type=float, default=6.0, help="Ending reduced temperature (inclusive)")
     parser.add_argument("--T-step", type=float, default=0.2, help="Temperature step")
-    parser.add_argument("--mc-steps", type=int, default=1_000_000, help="Total MC steps (spin-flip attempts)")
+    parser.add_argument(
+        "--mc-steps",
+        type=int,
+        default=10_000,
+        help="Total MC sweeps (each sweep attempts N flips)",
+    )
     parser.add_argument(
         "--thermal-steps",
         type=int,
         default=None,
-        help="Thermalization steps (defaults to 20% of mc-steps)",
+        help="Thermalization sweeps (defaults to 20% of mc-steps)",
     )
     parser.add_argument(
         "--measure-interval",
         type=int,
         default=None,
-        help="Measurement interval in steps (defaults to one sweep)",
+        help="Measurement interval in sweeps (defaults to 1 sweep)",
     )
     parser.add_argument("--seed", type=int, default=1234, help="Random seed")
     parser.add_argument(
