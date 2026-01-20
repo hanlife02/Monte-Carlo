@@ -275,7 +275,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--init",
         type=str,
-        default="random",
+        default="up",
         choices=["random", "up", "down"],
         help="初始自旋构型：random/up/down",
     )
